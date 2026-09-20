@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import requests
 
 ENDPOINT = os.getenv("RAKUTEN_ENDPOINT") or (
-    "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20220601"
+    "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701"
 )
 
 
