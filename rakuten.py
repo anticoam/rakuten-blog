@@ -72,7 +72,8 @@ def _get(params):
         )
     if r.status_code == 429:
         raise RuntimeError("楽天API 429: リクエスト過多。しばらく待って再実行してください")
-    r.raise_for_status()
+    if not r.ok:  # 400等: 楽天が返した理由(どの項目がだめか)を必ず表示する
+        raise RuntimeError(f"楽天API エラー({r.status_code}) 楽天の返答: {r.text[:400]}")
     return r.json().get("Items", [])
 
 
