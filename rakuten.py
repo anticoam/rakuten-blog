@@ -12,16 +12,32 @@ ENDPOINT = os.getenv("RAKUTEN_ENDPOINT") or (
 )
 
 
-# 期間限定の宣伝文句を含む【…】＼…／[…]だけを商品名から取り除く(古い情報が残るのを防ぐ)
-_PROMO = re.compile(r"クーポン|OFF|オフ|マラソン|セール|SALE|ポイント|P\d+倍|送料無料|限定|最大|円|%|％|割引|特典|予約|期間|SS|スーパー", re.I)
-_BRACKETS = re.compile(r"【[^】]*】|＼[^／]*／|\[[^\]]*\]|［[^］]*］|★[^★]*★")
+# 宣伝文句の除去: ＼…／と★…★は常に削除、【】[]は販促語を含むものだけ削除(商品の特徴は残す)
+_PROMO = re.compile(
+    r"クーポン|OFF|オフ|マラソン|セール|SALE|ポイント|P\d+倍|送料無料|限定|最大|円|%|％|割引|特典|予約|期間"
+    r"|SS|スーパー|\d+位|受賞|冠|ランキング|NO\.?\s?1|新発売|新登場|新作|新モデル|激安|最安|特価"
+    r"|訳あり|訳アリ|在庫|早い者勝ち|公式|楽天", re.I)
+_ALWAYS = re.compile(r"＼[^／]*／|★[^★]*★")
+_BRACKETS = re.compile(r"【[^】]*】|\[[^\]]*\]|［[^］]*］")
 
 
 def clean_name(name):
     def drop(m):
         return "" if _PROMO.search(m.group(0)) else m.group(0)
-    cleaned = re.sub(r"\s+", " ", _BRACKETS.sub(drop, name)).strip()
+    s = _BRACKETS.sub(drop, _ALWAYS.sub("", name))
+    cleaned = re.sub(r"\s+", " ", s).strip()
     return cleaned or name  # 全部消えたら元の名前を使う
+
+
+def dedupe(items):
+    """同じ店・同じ画像(=色違い・サイズ違い)の重複を除く。先に出たもの(レビュー数が多い方)を残す"""
+    seen, out = set(), []
+    for i in items:
+        key = (i["shop"], i["image"] or i["name"])
+        if key not in seen:
+            seen.add(key)
+            out.append(i)
+    return out
 
 
 def _norm(text):
@@ -99,7 +115,7 @@ def _get(params):
     return r.json().get("Items", [])
 
 
-def search_items(keyword, top=5, min_review=4.0, min_count=10, hits=30, strict=True):
+def search_items(keyword, top=8, min_review=4.0, min_count=10, hits=30, strict=True):
     raw = _get({"keyword": keyword, "hits": hits, "sort": "-reviewCount",
                 "availability": 1, "imageFlag": 1})
     items = [normalize(x) for x in raw]
@@ -113,7 +129,7 @@ def search_items(keyword, top=5, min_review=4.0, min_count=10, hits=30, strict=T
         items = [i for i in items if name_matches(i["name"], keyword)]
         if before != len(items):
             print(f"[info] {keyword}: 商品名が一致しない{before - len(items)}件を除外")
-    return items[:top]
+    return dedupe(items)[:top]
 
 
 def fetch_by_code(item_code):
