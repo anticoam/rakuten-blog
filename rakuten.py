@@ -3,6 +3,8 @@ import os
 import re
 import time
 
+from urllib.parse import urlparse
+
 import requests
 
 ENDPOINT = os.getenv("RAKUTEN_ENDPOINT") or (
@@ -40,6 +42,15 @@ def normalize(raw):
     }
 
 
+def _origin_headers():
+    """楽天の新APIは Referer ではなく Origin を見る(RAKUTEN_REFERER から作る)"""
+    ref = os.getenv("RAKUTEN_REFERER") or "https://example.com"
+    if "://" not in ref:
+        ref = "https://" + ref
+    p = urlparse(ref)
+    return {"Origin": f"{p.scheme}://{p.netloc}", "Referer": ref}
+
+
 def _get(params):
     full = {
         "format": "json",
@@ -50,7 +61,7 @@ def _get(params):
     }
     if os.getenv("RAKUTEN_AFFILIATE_ID"):
         full["affiliateId"] = os.environ["RAKUTEN_AFFILIATE_ID"]
-    headers = {"Referer": os.getenv("RAKUTEN_REFERER") or "https://example.com"}
+    headers = _origin_headers()
 
     r = requests.get(ENDPOINT, params=full, headers=headers, timeout=15)
     time.sleep(1.1)  # 1リクエスト/秒の制限。失敗時も必ず待つ(429の連鎖を防ぐ)
