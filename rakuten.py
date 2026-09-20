@@ -5,9 +5,8 @@ import time
 
 import requests
 
-ENDPOINT = os.getenv(
-    "RAKUTEN_ENDPOINT",
-    "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20220601",
+ENDPOINT = os.getenv("RAKUTEN_ENDPOINT") or (
+    "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20220601"
 )
 
 
@@ -51,16 +50,18 @@ def _get(params):
     }
     if os.getenv("RAKUTEN_AFFILIATE_ID"):
         full["affiliateId"] = os.environ["RAKUTEN_AFFILIATE_ID"]
-    headers = {"Referer": os.getenv("RAKUTEN_REFERER", "https://example.com")}
+    headers = {"Referer": os.getenv("RAKUTEN_REFERER") or "https://example.com"}
 
     r = requests.get(ENDPOINT, params=full, headers=headers, timeout=15)
+    time.sleep(1.1)  # 1リクエスト/秒の制限。失敗時も必ず待つ(429の連鎖を防ぐ)
     if r.status_code in (401, 403):
         raise RuntimeError(
-            f"楽天API認証エラー({r.status_code}): アプリID/アクセスキー、および "
-            "アプリ登録時の許可URLと RAKUTEN_REFERER の一致を確認してください"
+            f"楽天API認証エラー({r.status_code}) 楽天の返答: {r.text[:300]} "
+            "/ 確認点: アプリID・アクセスキー・許可ドメイン・RAKUTEN_REFERER"
         )
+    if r.status_code == 429:
+        raise RuntimeError("楽天API 429: リクエスト過多。しばらく待って再実行してください")
     r.raise_for_status()
-    time.sleep(1.1)  # 1リクエスト/秒の制限に配慮
     return r.json().get("Items", [])
 
 
