@@ -2,7 +2,7 @@
 import os
 import re
 import time
-
+import unicodedata
 from urllib.parse import urlparse
 
 import requests
@@ -10,6 +10,28 @@ import requests
 ENDPOINT = os.getenv("RAKUTEN_ENDPOINT") or (
     "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701"
 )
+
+
+# 期間限定の宣伝文句を含む【…】＼…／[…]だけを商品名から取り除く(古い情報が残るのを防ぐ)
+_PROMO = re.compile(r"クーポン|OFF|オフ|マラソン|セール|SALE|ポイント|P\d+倍|送料無料|限定|最大|円|%|％|割引|特典|予約|期間|SS|スーパー", re.I)
+_BRACKETS = re.compile(r"【[^】]*】|＼[^／]*／|\[[^\]]*\]|［[^］]*］|★[^★]*★")
+
+
+def clean_name(name):
+    def drop(m):
+        return "" if _PROMO.search(m.group(0)) else m.group(0)
+    cleaned = re.sub(r"\s+", " ", _BRACKETS.sub(drop, name)).strip()
+    return cleaned or name  # 全部消えたら元の名前を使う
+
+
+def _norm(text):
+    return unicodedata.normalize("NFKC", text).lower()
+
+
+def name_matches(name, keyword):
+    """キーワードの各単語がすべて商品名に含まれるか(全角半角・大文字小文字は無視)"""
+    n = _norm(name)
+    return all(_norm(t) in n for t in keyword.split())
 
 
 def _first_image(item):
@@ -30,7 +52,7 @@ def normalize(raw):
     it = raw.get("Item", raw)
     return {
         "code": it.get("itemCode", ""),
-        "name": _clean(it.get("itemName"), 120),
+        "name": clean_name(_clean(it.get("itemName"), 400))[:120],
         "price": int(it.get("itemPrice") or 0),
         "url": it.get("affiliateUrl") or it.get("itemUrl") or "",
         "image": _first_image(it),
@@ -77,7 +99,7 @@ def _get(params):
     return r.json().get("Items", [])
 
 
-def search_items(keyword, top=5, min_review=4.0, min_count=10, hits=30):
+def search_items(keyword, top=5, min_review=4.0, min_count=10, hits=30, strict=True):
     raw = _get({"keyword": keyword, "hits": hits, "sort": "-reviewCount",
                 "availability": 1, "imageFlag": 1})
     items = [normalize(x) for x in raw]
@@ -86,6 +108,11 @@ def search_items(keyword, top=5, min_review=4.0, min_count=10, hits=30):
         if i["url"] and i["price"] > 0
         and i["review_avg"] >= min_review and i["review_count"] >= min_count
     ]
+    if strict:  # 商品名にキーワードが無い商品(説明文だけ一致)を除外
+        before = len(items)
+        items = [i for i in items if name_matches(i["name"], keyword)]
+        if before != len(items):
+            print(f"[info] {keyword}: 商品名が一致しない{before - len(items)}件を除外")
     return items[:top]
 
 
